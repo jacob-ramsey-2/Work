@@ -181,6 +181,7 @@ void processWorkfile(WorkContext *work_context) {
 			strcpy(task.name, line);
 			// Grab each file or flag
 			while (fgets(line, MAX_FILE_LENGTH, work_context->workfile) != NULL) {
+				removeTrailingWS(line);
 				if (isComment(line)) {																	/* Found comment */
 					continue;
 				} else if (isFile(line) && task.file_count <= MAX_FILE_COUNT) {							/* Found file for task */
