@@ -2,7 +2,7 @@
  * Jacob Ramsey
  * main.c
  *
- * This is the only file fot the Work program. Thanks for indulging in my relentless over automation.
+ * This is the only file for the Work program. Thanks for indulging in my relentless over automation.
  */
 
 #include <stdio.h>
@@ -13,9 +13,10 @@
 // MAX VALUES
 #define MAX_TASK_LENGTH 100
 #define MAX_TASK_COUNT 50
-#define MAX_FILE_COUNT 10
+#define MAX_FILE_COUNT 20
 #define MAX_FILE_LENGTH 100
 #define MAX_FLAG_COUNT 10
+#define MAX_ERROR_LENGTH 100
 
 // CONSTANTS
 #define bool char
@@ -28,6 +29,16 @@
 #define FLAG_ERROR(x) printf("Uknown Flag: %s\n", x)
 #define WORKFILE_ERROR(x) printf("Workfile error: %s\n", x)
 
+// ENUMS
+typedef enum {
+	COMMENT,
+	TASK,
+	TASK_FILE,
+	TASK_FLAG,
+	BLANK,
+	OTHER
+} LineState;
+
 // STRUCTS
 typedef struct {
 	char name[MAX_TASK_LENGTH];
@@ -38,7 +49,7 @@ typedef struct {
 } Task;
 
 typedef struct {
-	Task task[MAX_TASK_COUNT];
+	Task tasks[MAX_TASK_COUNT];
 	unsigned int task_count;
 } AllTasks;
 
@@ -61,6 +72,13 @@ void removeTrailingWS(char* str) {
     while (i >= 0 && isspace((unsigned char)str[i]))
 		i--;
     str[i + 1] = '\0';
+}
+
+void cleanAndExit(WorkContext *work_context, int val) {
+	if (work_context->workfile != NULL) {
+		fclose(work_context->workfile);
+	}
+	exit(val);
 }
 
 // ========================= CLI VALUES ==============================
@@ -107,7 +125,7 @@ void processCLI(WorkContext *work_context, int argc, char** argv) {
 				switch(flag) {
 					case 0:
 						printHelp();
-						exit(0);
+						cleanAndExit(work_context, 0);
 				}
 			}
 		} else { // Possible work specification
@@ -116,7 +134,7 @@ void processCLI(WorkContext *work_context, int argc, char** argv) {
 				work_assigned = TRUE;
 			} else {
 				printf("ERROR: Max 1 work argument.");
-				exit(1);
+				cleanAndExit(work_context, 1);
 			}
 		}
 	}
@@ -124,35 +142,35 @@ void processCLI(WorkContext *work_context, int argc, char** argv) {
 
 // ========================= WORKFILE FUNCTIONS ===========================
 
-bool isComment(const char* line) {
-	for (int i = 0; line[i] != '\0'; i++) {
+LineState classifyLine(const char* line) {
+	// check for comment
+	for (int i = 0; line[i] != '\0'; i++) { 
 		if (!isspace(line[i])) {
 			if (line[i] == '#') {
-				return TRUE;
+				return COMMENT;
 			} else {
 				break;
 			}
 		}
 	}
-	return FALSE;
-}
 
-bool isTask(const char* line) {
+	// check for task
 	if (line[strlen(line) - 1] == ':') 
-		return TRUE;
-	return FALSE;
-}
+		return TASK;
 
-bool isFile(const char* line) {
+	// check for nvim flag
+	if (line[0] == '\t' && line[1] == '-') 
+		return TASK_FLAG;
+
+	// check for file
 	if (line[0] == '\t' && line[1] != '-') 
-		return TRUE;
-	return FALSE;
-}
+		return TASK_FILE;
+	
+	// check for blank line
+	if (line[0] == '\0') 
+		return BLANK;
 
-bool isNvimFlag(const char* line) {
-	if (line[0] == '\t' && line[1] == '-')
-		return TRUE;
-	return FALSE;
+	return OTHER;
 }
 
 void cleanTask(char* task) {
@@ -161,7 +179,10 @@ void cleanTask(char* task) {
 
 void processWorkfile(WorkContext *work_context) {
 	// Declare vars
-	char line[100];
+	Task current_task = {0};
+	char line[MAX_FILE_LENGTH];
+	char error_message[MAX_ERROR_LENGTH] = "";
+	unsigned int line_count = 1;
 
 	// Open file
 	work_context->workfile = fopen("Workfile", "r");
@@ -169,34 +190,80 @@ void processWorkfile(WorkContext *work_context) {
 	// Error check
 	if (work_context->workfile == NULL) {
 		WORKFILE_ERROR("Workfile not found");
-		exit(1);
+		cleanAndExit(work_context, 1);
 	}
 
-	// Grab each line from workfile
-	while (fgets(line, MAX_TASK_LENGTH, work_context->workfile) != NULL) {
+	// Process each line from workfile
+	while (fgets(line, MAX_FILE_LENGTH, work_context->workfile) != NULL) {
+		// Read line for task
 		removeTrailingWS(line);
-		if (!isComment(line) && isTask(line) && work_context->all_tasks.task_count <= MAX_TASK_COUNT) { /* Found task */
-			Task task = {0};
-			cleanTask(line);
-			strcpy(task.name, line);
-			// Grab each file or flag
-			while (fgets(line, MAX_FILE_LENGTH, work_context->workfile) != NULL) {
-				removeTrailingWS(line);
-				if (isComment(line)) {																	/* Found comment */
-					continue;
-				} else if (isFile(line) && task.file_count <= MAX_FILE_COUNT) {							/* Found file for task */
-					strcpy(task.files[task.file_count++], line);
-				} else if (isNvimFlag(line) && task.flag_count <= MAX_FLAG_COUNT) {						/* Found flag for task */
-					strncpy(task.flags[task.flag_count++], line + 1, 2); 
-				} else {
-					// seek backwards
-					fseek(work_context->workfile, -strlen(line), SEEK_CUR);
-					break;
+		switch(classifyLine(line)) {
+			case TASK:
+				// Save prevous task
+				if (strlen(current_task.name) > 0) { 
+					if (work_context->all_tasks.task_count == MAX_TASK_COUNT) {
+						snprintf(error_message, MAX_ERROR_LENGTH, "Max number of tasks reached: %u", MAX_TASK_COUNT);
+						WORKFILE_ERROR(error_message);
+						cleanAndExit(work_context, 1);
+					}
+					work_context->all_tasks.tasks[work_context->all_tasks.task_count++] = current_task;
 				}
-			}
-			work_context->all_tasks.task[work_context->all_tasks.task_count++] = task;
+				// Start new task
+				memset(&current_task, 0, sizeof(current_task));
+				cleanTask(line);
+				strcpy(current_task.name, line);
+				break;
+			case TASK_FILE:
+				// Check for errors
+				if (current_task.file_count == MAX_FILE_COUNT) {
+					snprintf(error_message, MAX_ERROR_LENGTH, "Max number of task files reached: %u", MAX_FILE_COUNT);
+					WORKFILE_ERROR(error_message);
+					cleanAndExit(work_context, 1);
+				} else if (strlen(current_task.name) == 0) {
+					snprintf(error_message, MAX_ERROR_LENGTH, "Task file found on line: %u without parent task.", line_count);
+					WORKFILE_ERROR(error_message);
+					cleanAndExit(work_context, 1);
+				}
+				// Add file to task
+				strcpy(current_task.files[current_task.file_count++], line);
+				break;
+			case TASK_FLAG:
+				// Check for errors
+				if (current_task.flag_count == MAX_FLAG_COUNT) {
+					snprintf(error_message, MAX_ERROR_LENGTH, "Max number of task flags reached: %u", MAX_FLAG_COUNT);
+					WORKFILE_ERROR(error_message);
+					cleanAndExit(work_context, 1);
+				} else if (strcmp(current_task.name, "") == 0) {
+					snprintf(error_message, MAX_ERROR_LENGTH, "Task flag found on line: %u without parent task.", line_count);
+					WORKFILE_ERROR(error_message);
+					cleanAndExit(work_context, 1);
+				}
+				// Add flag to task
+				strcpy(current_task.flags[current_task.flag_count++], line);
+				break;
+			case COMMENT:
+			case BLANK:
+				break;
+			case OTHER:
+			default:
+				snprintf(error_message, MAX_ERROR_LENGTH, "Unknown line: %u.", line_count);
+				WORKFILE_ERROR(error_message);
+				cleanAndExit(work_context, 1);
+				break;
 		}
+		line_count++;
 	}
+
+	// Save last task found
+    if (current_task.name[0] != '\0') {
+        if (work_context->all_tasks.task_count >= MAX_TASK_COUNT) {
+            snprintf(error_message, MAX_ERROR_LENGTH,
+                     "Max number of tasks reached: %u", MAX_TASK_COUNT);
+            WORKFILE_ERROR(error_message);
+            cleanAndExit(work_context, 1);
+        }
+        work_context->all_tasks.tasks[work_context->all_tasks.task_count++] = current_task;
+    }
 
 	// Check if any work at all
 	if (work_context->all_tasks.task_count == 0) {
@@ -213,7 +280,7 @@ void executeWork(const WorkContext *work_context) {
 	// If work specified
 	if (work_context->selected_task->name[0] != 0) {
 		for (i = 0; i < work_context->all_tasks.task_count; i++) {
-			if (strcmp(work_context->all_tasks.task[i].name, work_context->selected_task->name) == 0) task_picked = i;
+			if (strcmp(work_context->all_tasks.tasks[i].name, work_context->selected_task->name) == 0) task_picked = i;
 		}
 		if (task_picked == -1) {
 			WORKFILE_ERROR("Can't find work specified.");
@@ -223,12 +290,12 @@ void executeWork(const WorkContext *work_context) {
 		task_picked = 0;
 	}
 	// Build execute string
-	for (i = 0; i < work_context->all_tasks.task[task_picked].flag_count; i++) {
-		strcat(execute, work_context->all_tasks.task[task_picked].flags[i]);
+	for (i = 0; i < work_context->all_tasks.tasks[task_picked].flag_count; i++) {
+		strcat(execute, work_context->all_tasks.tasks[task_picked].flags[i]);
 		strcat(execute, " ");
 	}
-	for (i = 0; i < work_context->all_tasks.task[task_picked].file_count; i++) {
-		strcat(execute, work_context->all_tasks.task[task_picked].files[i]);
+	for (i = 0; i < work_context->all_tasks.tasks[task_picked].file_count; i++) {
+		strcat(execute, work_context->all_tasks.tasks[task_picked].files[i]);
 		strcat(execute, " ");
 	}
 
@@ -255,7 +322,7 @@ int main(int argc, char** argv) {
 	executeWork(&work_context);
 
 	// Clean up
-	fclose(work_context.workfile);
+	cleanAndExit(&work_context, 0);
 	
 	return 0;
 }
