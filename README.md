@@ -10,7 +10,7 @@ $ make
 
 ## Usage
 ```sh
-> work [OPTIONS] [TASK_NAME] 
+$ work [OPTIONS] [TASK_NAME] 
 	    -h		Print help message
 ```
 

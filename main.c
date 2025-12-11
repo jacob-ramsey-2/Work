@@ -104,7 +104,7 @@ int findFlag(const char* s) {
 }
 
 void printHelp() {
-	printf("USAGE: work [FILE] [-FLAG]...\n");
+	printf("USAGE: work [TASK] [-FLAG]...\n");
 	printf("--------------------------------------\n");
 	printf("\t%-15s%-15s", "Flag:", "Description:\n");
 	for (int i = 0; i < NUM_FLAGS; i++) {
@@ -205,6 +205,9 @@ void processWorkfile(WorkContext *work_context) {
 						snprintf(error_message, MAX_ERROR_LENGTH, "Max number of tasks reached: %u", MAX_TASK_COUNT);
 						WORKFILE_ERROR(error_message);
 						cleanAndExit(work_context, 1);
+					} else if (current_task.file_count == 0){
+						WORKFILE_ERROR("Each task must have at least one file.");
+						cleanAndExit(work_context, 1);
 					}
 					work_context->all_tasks.tasks[work_context->all_tasks.task_count++] = current_task;
 				}
@@ -257,11 +260,13 @@ void processWorkfile(WorkContext *work_context) {
 	// Save last task found
     if (current_task.name[0] != '\0') {
         if (work_context->all_tasks.task_count >= MAX_TASK_COUNT) {
-            snprintf(error_message, MAX_ERROR_LENGTH,
-                     "Max number of tasks reached: %u", MAX_TASK_COUNT);
+            snprintf(error_message, MAX_ERROR_LENGTH,"Max number of tasks reached: %u", MAX_TASK_COUNT);
             WORKFILE_ERROR(error_message);
             cleanAndExit(work_context, 1);
-        }
+        } else if (current_task.file_count == 0) {
+			WORKFILE_ERROR("Each task must have at least 1 file.");
+			cleanAndExit(work_context, 1);
+		}
         work_context->all_tasks.tasks[work_context->all_tasks.task_count++] = current_task;
     }
 
