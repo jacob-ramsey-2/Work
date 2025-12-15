@@ -1,6 +1,11 @@
 # Work
 A small command-line tool written in C that allows Neovim users to predefine tasks they are working on as well as the files necessary to complete those tasks.
 
+## Prerequisites 
+- Make
+- GCC 
+- Git
+
 ## Installation
 ```sh
 $ git clone https://github.com/jacob-ramsey-2/Work.git
